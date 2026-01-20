@@ -62,22 +62,27 @@ async function getDestinationImage(query) {
 
 // --- 4. GENERATE ENDPOINT ---
 app.post('/generate-trip', async (req, res) => {
-    const { destination, days, budget } = req.body;
-    console.log(`\n🤖 New Request: ${destination}, ${days} days, ${budget}`);
+    const { destination, days, budget, origin } = req.body; // <--- Added origin
+    console.log(`🤖 Request: Trip from ${origin} to ${destination}`);
 
     try {
         const prompt = `
-            Act as a local travel guide. Plan a ${days}-day trip to ${destination} with a ${budget} budget.
-            Identify 3 "Hidden Gems", a day-by-day itinerary, and a local transport tip.
+            Act as a local travel guide. Plan a ${days}-day trip to ${destination} starting from ${origin} with a ${budget} budget.
             
-            IMPORTANT: Return ONLY valid JSON. Do not use Markdown code blocks.
-            Format:
+            1. Suggest the best way to reach ${destination} from ${origin}.
+            2. Identify 3 "Hidden Gems".
+            3. Create a day-by-day itinerary.
+            4. Suggest local transport inside the city.
+
+            IMPORTANT: Return ONLY valid JSON. Format:
             {
+                "origin": "${origin}",
                 "destination": "${destination}",
                 "budget_tier": "${budget}",
-                "local_transport": "Best way to travel...",
+                "travel_to_destination": "Best way to reach from origin (e.g. Flight, Train)",
+                "local_transport": "Best way to travel inside city",
                 "gems": [ { "name": "Place Name", "type": "Type", "rating": 4.5 } ],
-                "itinerary": [ { "day": 1, "morning": "Activity", "afternoon": "Activity", "evening": "Activity" } ]
+                "itinerary": [ { "day": 1, "morning": "...", "afternoon": "...", "evening": "..." } ]
             }
         `;
 
