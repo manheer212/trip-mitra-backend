@@ -62,56 +62,77 @@ async function getDestinationImage(query) {
 
 // --- 4. GENERATE ENDPOINT ---
 app.post('/generate-trip', async (req, res) => {
-    const { destination, days, budget, origin } = req.body; // <--- Added origin
-    console.log(`🤖 Request: Trip from ${origin} to ${destination}`);
+    const { destination, days, budget, origin } = req.body;
+    console.log(`🤖 Planning detailed trip: ${origin} -> ${destination} (${days} days)`);
 
     try {
         const prompt = `
-            Act as a local travel guide. Plan a ${days}-day trip to ${destination} starting from ${origin} with a ${budget} budget.
-            
-            1. Suggest the best way to reach ${destination} from ${origin}.
-            2. Identify 3 "Hidden Gems".
-            3. Create a day-by-day itinerary.
-            4. Suggest local transport inside the city.
+            Act as an expert travel planner. Plan a ${days}-day trip to ${destination} starting specifically from ${origin} with a ${budget} budget.
 
-            IMPORTANT: Return ONLY valid JSON. Format:
+            CRITICAL INSTRUCTIONS:
+            1.  **Travel Options:** Provide 3 distinct options to reach ${destination} from ${origin}: Flight, Train, and Bus. Include estimated cost and duration for each.
+            2.  **Itinerary:** Start Day 1 with the journey from ${origin}. For every single activity (morning, afternoon, evening), include an estimated cost.
+            3.  **Budget:** Provide a total budget breakdown at the end.
+
+            Output strictly valid JSON (no markdown) in this structure:
             {
                 "origin": "${origin}",
                 "destination": "${destination}",
-                "budget_tier": "${budget}",
-                "travel_to_destination": "Best way to reach from origin (e.g. Flight, Train)",
-                "local_transport": "Best way to travel inside city",
-                "gems": [ { "name": "Place Name", "type": "Type", "rating": 4.5 } ],
-                "itinerary": [ { "day": 1, "morning": "...", "afternoon": "...", "evening": "..." } ]
+                "travel_options": {
+                    "flight": { "price": "₹5,000", "duration": "2h", "details": "Direct flight to Airport" },
+                    "train": { "price": "₹1,500", "duration": "14h", "details": "Sleeper/3AC Express Train" },
+                    "bus": { "price": "₹1,000", "duration": "16h", "details": "AC Volvo Sleeper" }
+                },
+                "itinerary": [
+                    {
+                        "day": 1,
+                        "title": "Travel from ${origin}",
+                        "activities": [
+                            { "time": "Morning", "desc": "Depart from ${origin}", "cost": "Included in Travel" },
+                            { "time": "Afternoon", "desc": "Transit & Lunch", "cost": "₹500" },
+                            { "time": "Evening", "desc": "Arrival & Hotel Check-in", "cost": "₹0" }
+                        ]
+                    },
+                    {
+                        "day": 2,
+                        "title": "Exploring ${destination}",
+                        "activities": [
+                            { "time": "Morning", "desc": "Visit main attraction", "cost": "₹500" },
+                            { "time": "Afternoon", "desc": "Lunch at local spot", "cost": "₹800" },
+                            { "time": "Evening", "desc": "Sunset view & Dinner", "cost": "₹1000" }
+                        ]
+                    }
+                ],
+                "budget_breakdown": {
+                    "transport": "₹2,000",
+                    "accommodation": "₹6,000",
+                    "food": "₹5,000",
+                    "activities": "₹3,000",
+                    "total_estimated": "₹16,000"
+                }
             }
         `;
 
-        const [aiResult, imageUrl] = await Promise.all([
-            model.generateContent(prompt),
-            getDestinationImage(destination)
-        ]);
-
-        let text = aiResult.response.text();
-        // Strict Cleanup to prevent JSON errors
-        text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-        const jsonStart = text.indexOf('{');
-        const jsonEnd = text.lastIndexOf('}');
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-            text = text.substring(jsonStart, jsonEnd + 1);
-        }
-
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        
+        // Clean markdown if AI adds it
+        let text = response.text().replace(/```json/g, "").replace(/```/g, "").trim();
         const tripData = JSON.parse(text);
-        tripData.imageUrl = imageUrl;
 
-        console.log("✅ Response Generated Successfully");
+        // Fetch Image
+        const unsplashResponse = await axios.get(`https://api.unsplash.com/search/photos`, {
+            params: { query: destination, client_id: process.env.UNSPLASH_ACCESS_KEY, per_page: 1 }
+        });
+        tripData.imageUrl = unsplashResponse.data.results[0]?.urls?.regular || null;
+
         res.json(tripData);
 
     } catch (error) {
-        console.error("❌ GENERATION ERROR:", error.message);
-        res.status(500).json({ error: "AI Failed", details: error.message });
+        console.error("Error:", error);
+        res.status(500).json({ error: "Failed to generate trip" });
     }
 });
-
 // --- 5. SAVE ENDPOINT ---
 app.post('/save-trip', async (req, res) => {
     try {
