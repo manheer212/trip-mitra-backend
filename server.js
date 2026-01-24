@@ -23,31 +23,16 @@ const tripSchema = new mongoose.Schema({
 });
 const Trip = mongoose.model('Trip', tripSchema);
 
-// --- 2. AI SETUP & VERIFICATION ---
+// --- 2. AI SETUP ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-// USING THE SAFEST MODEL ALIAS
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); 
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
 
-// *** NEW: AI SELF-CHECK FUNCTION ***
-async function verifyAI() {
-    try {
-        process.stdout.write("🔄 Testing AI Connection... ");
-        const result = await model.generateContent("Say 'OK' if you can hear me.");
-        const response = await result.response;
-        const text = response.text();
-        if (text) {
-            console.log("✅ AI System Operational!");
-        }
-    } catch (error) {
-        console.log("\n❌ AI INITIALIZATION FAILED");
-        console.error("Error Details:", error.message);
-        console.log("👉 TIP: Check your API Key or Model Name in server.js");
-    }
-}
-// Run the check immediately
-//verifyAI();
+// --- 3. ROOT ROUTE (So you know it's running!) ---
+app.get('/', (req, res) => {
+    res.send("🚀 Trip Mitra Server is Running! Use /generate-trip to plan.");
+});
 
-// --- 3. IMAGE HELPER ---
+// --- 4. IMAGE HELPER (Using built-in fetch) ---
 async function getDestinationImage(query) {
     try {
         const response = await fetch(
@@ -56,11 +41,14 @@ async function getDestinationImage(query) {
         );
         const data = await response.json();
         if (data.results?.length > 0) return data.results[0].urls.regular;
-    } catch (e) { console.error("Unsplash Error (Ignoring)"); }
+    } catch (e) { 
+        console.error("Unsplash Error:", e.message); 
+    }
+    // Fallback image if Unsplash fails
     return "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?auto=format&fit=crop&w=2070&q=80";
 }
 
-// --- 4. GENERATE ENDPOINT ---
+// --- 5. GENERATE ENDPOINT ---
 app.post('/generate-trip', async (req, res) => {
     const { destination, days, budget, origin } = req.body;
     console.log(`🤖 Planning detailed trip: ${origin} -> ${destination} (${days} days)`);
@@ -116,24 +104,21 @@ app.post('/generate-trip', async (req, res) => {
         const result = await model.generateContent(prompt);
         const response = await result.response;
         
-        // Clean markdown if AI adds it
         let text = response.text().replace(/```json/g, "").replace(/```/g, "").trim();
         const tripData = JSON.parse(text);
 
-        // Fetch Image
-        const unsplashResponse = await axios.get(`https://api.unsplash.com/search/photos`, {
-            params: { query: destination, client_id: process.env.UNSPLASH_ACCESS_KEY, per_page: 1 }
-        });
-        tripData.imageUrl = unsplashResponse.data.results[0]?.urls?.regular || null;
+        // ✅ FIXED: Use the helper function instead of axios
+        tripData.imageUrl = await getDestinationImage(destination);
 
         res.json(tripData);
 
     } catch (error) {
-        console.error("Error:", error);
+        console.error("Server Error:", error);
         res.status(500).json({ error: "Failed to generate trip" });
     }
 });
-// --- 5. SAVE ENDPOINT ---
+
+// --- 6. SAVE ENDPOINT ---
 app.post('/save-trip', async (req, res) => {
     try {
         const { destination, budget, fullData } = req.body;
@@ -145,10 +130,10 @@ app.post('/save-trip', async (req, res) => {
         res.status(500).json({ success: false });
     }
 });
-// --- 6. GET ALL TRIPS ENDPOINT ---
+
+// --- 7. GET ALL TRIPS ENDPOINT ---
 app.get('/my-trips', async (req, res) => {
     try {
-        // Find all trips, sort by newest first (-1)
         const trips = await Trip.find().sort({ createdAt: -1 });
         res.json(trips);
     } catch (error) {
